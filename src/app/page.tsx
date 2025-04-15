@@ -10,11 +10,34 @@ import { HowItWorks } from "@/components/ui/how-it-works";
 import { PricingSection } from "@/components/ui/pricing-section";
 import { InfiniteMovingCards } from "@/components/ui/infinite-moving-cards";
 import { Footer } from "@/components/ui/footer";
+import { ATSAnalysisResult } from "@/lib/gemini-api";
 
 export default function Home() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+  const [sampleResults, setSampleResults] = useState<ATSAnalysisResult>({
+    score: 78,
+    keywords: [
+      { word: "Project Management", found: true },
+      { word: "Team Leadership", found: true },
+      { word: "Strategic Planning", found: false },
+      { word: "Budget Management", found: true },
+      { word: "Stakeholder Communication", found: false },
+      { word: "Risk Assessment", found: true },
+      { word: "Agile Methodology", found: false },
+    ],
+    suggestions: [
+      "Add more industry-specific keywords like 'Strategic Planning' and 'Agile Methodology'",
+      "Improve the formatting of your work experience section for better ATS readability",
+      "Use more action verbs at the beginning of your bullet points",
+      "Quantify your achievements with specific metrics and results",
+      "Remove graphics and complex formatting that may confuse ATS systems",
+    ],
+  });
+  const [jobDescription, setJobDescription] = useState('');
 
   // Sample data for features
   const features = [
@@ -172,47 +195,251 @@ export default function Home() {
     },
   ];
 
-  // Sample data for ATS results
-  const sampleResults = {
-    score: 78,
-    keywords: [
-      { word: "Project Management", found: true },
-      { word: "Team Leadership", found: true },
-      { word: "Strategic Planning", found: false },
-      { word: "Budget Management", found: true },
-      { word: "Stakeholder Communication", found: false },
-      { word: "Risk Assessment", found: true },
-      { word: "Agile Methodology", found: false },
-    ],
-    suggestions: [
-      "Add more industry-specific keywords like 'Strategic Planning' and 'Agile Methodology'",
-      "Improve the formatting of your work experience section for better ATS readability",
-      "Use more action verbs at the beginning of your bullet points",
-      "Quantify your achievements with specific metrics and results",
-      "Remove graphics and complex formatting that may confuse ATS systems",
-    ],
+  const handleFileUpload = (file: File) => {
+    console.log("File uploaded:", file.name);
+    setUploadStatus('uploading');
+    
+    try {
+      // Validate file size
+      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+        throw new Error("File size exceeds 10MB limit");
+      }
+      
+      // Validate file type if needed
+      const fileType = file.type;
+      const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+      
+      if (!validTypes.includes(fileType) && !file.name.endsWith('.pdf') && !file.name.endsWith('.doc') && 
+          !file.name.endsWith('.docx') && !file.name.endsWith('.txt')) {
+        throw new Error("Invalid file type. Please upload PDF, DOC, DOCX, or TXT file");
+      }
+      
+      // Simulate file processing delay
+      setTimeout(() => {
+        setUploadedFile(file);
+        setUploadStatus('success');
+      }, 500);
+    } catch (error) {
+      console.error("Error handling file upload:", error);
+      setUploadStatus('error');
+      if (error instanceof Error) {
+        alert(error.message);
+      } else {
+        alert("Failed to process the file. Please try again.");
+      }
+    }
   };
 
-  const handleFileUpload = (file: File) => {
-    // In a real application, you would process the file here
-    console.log("File uploaded:", file.name);
+  const handleAnalyzeResume = async () => {
+    if (!uploadedFile) {
+      alert("Please upload a resume file first.");
+      return;
+    }
 
     // Show loading state
     setIsLoading(true);
 
-    // Simulate processing delay
-    setTimeout(() => {
-      setIsLoading(false);
-      setShowResults(true);
+    try {
+      // Check if API key is configured
+      if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+        throw new Error("Missing Gemini API key. Please make sure NEXT_PUBLIC_GEMINI_API_KEY is set in your environment variables.");
+      }
+      
+      // Import the geminiClient here to use it
+      const geminiClient = await import('@/lib/gemini-api').then(module => module.default);
 
-      // Scroll to results section after a short delay
-      setTimeout(() => {
-        document.getElementById('results-section')?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start'
-        });
-      }, 100);
-    }, 2000);
+      console.log("API key available:", !!process.env.NEXT_PUBLIC_GEMINI_API_KEY);
+
+      // Extract text from file
+      const textContent = await geminiClient.extractTextFromFile(uploadedFile);
+
+      try {
+        // Try to analyze resume with Gemini API
+        const results = await geminiClient.analyzeResume(textContent, jobDescription || undefined);
+        
+        // Set results and show results section
+        setIsLoading(false);
+        setShowResults(true);
+        
+        // Replace sample results with actual results from Gemini
+        setSampleResults(results);
+        
+        // Scroll to results section
+        setTimeout(() => {
+          document.getElementById('results-section')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }, 100);
+      } catch (error) {
+        console.error("Gemini API error, using default analysis:", error);
+        
+        // Create a basic analysis if API fails
+        const basicAnalysis: ATSAnalysisResult = {
+          score: calculateBasicScore(textContent, jobDescription || ""),
+          keywords: extractBasicKeywords(textContent, jobDescription || ""),
+          suggestions: generateBasicSuggestions(textContent, jobDescription || "")
+        };
+        
+        // Still show results but using our basic analysis
+        setIsLoading(false);
+        setShowResults(true);
+        setSampleResults(basicAnalysis);
+        
+        // Scroll to results section
+        setTimeout(() => {
+          document.getElementById('results-section')?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }, 100);
+        
+        // Log error details but proceed with basic analysis
+        console.warn("Using basic analysis due to API error:", error);
+      }
+    } catch (error) {
+      console.error("Error processing resume:", error);
+      setIsLoading(false);
+      
+      // Show appropriate error message to user
+      if (error instanceof Error) {
+        if (error.message.includes("API key")) {
+          alert("API Key Error: " + error.message);
+        } else if (error.message.includes("403") || error.message.includes("permission")) {
+          alert("Authentication Error: Your API key may be invalid or missing required permissions.");
+        } else {
+          alert("Error processing your resume: " + error.message);
+        }
+      } else {
+        alert("Error processing your resume. Please try again.");
+      }
+    }
+  };
+  
+  // Simple text analysis functions to use as fallback when API fails
+  const calculateBasicScore = (resumeText: string, jobDescription: string): number => {
+    // Count words in resume
+    const resumeWordCount = resumeText.split(/\s+/).length;
+    
+    // Basic length check (too short or too long)
+    if (resumeWordCount < 200) return 50;
+    if (resumeWordCount > 1000) return 65;
+    
+    // Check if resume contains common sections
+    let score = 70; // Base score
+    
+    // Check for common resume sections
+    if (resumeText.toLowerCase().includes("experience")) score += 5;
+    if (resumeText.toLowerCase().includes("education")) score += 5;
+    if (resumeText.toLowerCase().includes("skills")) score += 5;
+    
+    // Check for job description match if provided
+    if (jobDescription) {
+      const jobKeywords = jobDescription
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length > 5)
+        .filter(word => !["about", "would", "should", "could", "their"].includes(word));
+      
+      // Check how many job keywords appear in resume
+      const matchCount = jobKeywords.filter(keyword => 
+        resumeText.toLowerCase().includes(keyword)
+      ).length;
+      
+      // Add points based on keyword matches
+      score += Math.min(15, matchCount);
+    }
+    
+    return Math.min(95, score); // Cap at 95
+  };
+  
+  const extractBasicKeywords = (resumeText: string, jobDescription: string): { word: string; found: boolean }[] => {
+    // Common keywords that should be in most resumes
+    const commonKeywords = [
+      "experience", "skills", "education", "project", "achievement", 
+      "leadership", "team", "management", "development", "responsible"
+    ];
+    
+    // If job description provided, extract some keywords from it
+    const jobKeywords = jobDescription
+      ? jobDescription
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(word => word.length > 5)
+          .filter(word => !["about", "would", "should", "could", "their"].includes(word))
+          .slice(0, 10)
+      : [];
+    
+    // Combine and deduplicate keywords
+    const allKeywords = [...new Set([...commonKeywords, ...jobKeywords])];
+    
+    // Check which keywords are found in the resume
+    return allKeywords.map(word => ({
+      word: word.charAt(0).toUpperCase() + word.slice(1),
+      found: resumeText.toLowerCase().includes(word)
+    })).slice(0, 10); // Limit to 10 keywords
+  };
+  
+  const generateBasicSuggestions = (resumeText: string, jobDescription: string): string[] => {
+    const suggestions = [];
+    
+    // Check resume length
+    if (resumeText.split(/\s+/).length < 300) {
+      suggestions.push("Your resume appears to be too short. Consider adding more details about your experience and skills.");
+    }
+    
+    // Check for common resume sections
+    if (!resumeText.toLowerCase().includes("experience")) {
+      suggestions.push("Add a dedicated 'Experience' section to highlight your work history.");
+    }
+    
+    if (!resumeText.toLowerCase().includes("education")) {
+      suggestions.push("Include an 'Education' section with your academic background.");
+    }
+    
+    if (!resumeText.toLowerCase().includes("skills")) {
+      suggestions.push("Add a 'Skills' section to highlight your technical and soft skills.");
+    }
+    
+    // Check for action verbs
+    const actionVerbs = ["managed", "led", "created", "developed", "implemented", "achieved"];
+    const hasActionVerbs = actionVerbs.some(verb => resumeText.toLowerCase().includes(verb));
+    if (!hasActionVerbs) {
+      suggestions.push("Use more action verbs (like 'managed', 'led', 'developed') to describe your achievements.");
+    }
+    
+    // Check for quantifiable achievements
+    const hasNumbers = /\d+%|\d+ percent|\d+ years|\d+K|\$\d+|\d+ people/i.test(resumeText);
+    if (!hasNumbers) {
+      suggestions.push("Quantify your achievements with numbers (e.g., 'increased sales by 20%' or 'managed a team of 5 people').");
+    }
+    
+    // Job description specific suggestions
+    if (jobDescription) {
+      const jobKeywords = jobDescription
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(word => word.length > 5)
+        .filter(word => !["about", "would", "should", "could", "their"].includes(word));
+      
+      // Find missing keywords
+      const missingKeywords = jobKeywords.filter(keyword => 
+        !resumeText.toLowerCase().includes(keyword)
+      ).slice(0, 5); // Take top 5 missing
+      
+      if (missingKeywords.length > 0) {
+        suggestions.push(`Try to include these keywords from the job description: ${missingKeywords.join(", ")}.`);
+      }
+    }
+    
+    // Add general suggestions if we don't have enough
+    if (suggestions.length < 3) {
+      suggestions.push("Ensure your resume is free of spelling and grammatical errors.");
+      suggestions.push("Use a clean, professional format that is easy for ATS systems to parse.");
+      suggestions.push("Tailor your resume for each job application by matching keywords from the job description.");
+    }
+    
+    return suggestions;
   };
 
   return (
@@ -293,25 +520,85 @@ export default function Home() {
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-black pt-16">
         <HeroSection>
-          <div className="flex flex-col items-center mt-12 space-y-8">
-            <FileUpload onFileChange={handleFileUpload} className="z-10" />
-            <button
-              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-full font-medium text-lg transition-all duration-300 z-10 shadow-lg hover:shadow-xl hover:-translate-y-1 transform disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:transform-none"
-              onClick={() => setShowResults(true)}
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <span className="flex items-center">
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          <div className="container max-w-6xl mx-auto px-4 py-16">
+            <h2 className="text-3xl font-bold text-center mb-10">
+              Check Your Resume ATS Compatibility
+            </h2>
+            <div className="max-w-xl mx-auto mb-8">
+              <p className="text-gray-600 dark:text-gray-300 text-center mb-6">
+                Upload your resume to analyze its compatibility with Applicant Tracking Systems.
+                For a more targeted analysis, paste the job description as well.
+              </p>
+              
+              {/* Job Description Input */}
+              <div className="mb-6">
+                <label 
+                  htmlFor="jobDescription" 
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                >
+                  Job Description (Optional)
+                </label>
+                <textarea
+                  id="jobDescription"
+                  rows={4}
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 
+                    shadow-sm focus:border-blue-500 focus:ring-blue-500 
+                    dark:bg-gray-700 dark:text-white sm:text-sm p-3"
+                  placeholder="Paste the job description here for a more targeted analysis..."
+                  onChange={(e) => setJobDescription(e.target.value)}
+                />
+              </div>
+              
+              <FileUpload onFileChange={handleFileUpload} className="z-10" />
+              
+              {/* File Upload Status */}
+              {uploadStatus === 'uploading' && (
+                <div className="mt-3 text-center text-sm text-blue-600 dark:text-blue-400">
+                  <svg className="w-5 h-5 inline-block mr-1 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                   </svg>
-                  Analyzing...
-                </span>
-              ) : (
-                "Check My Resume"
+                  Processing your resume...
+                </div>
               )}
-            </button>
+              
+              {uploadStatus === 'success' && uploadedFile && (
+                <div className="mt-3 text-center text-sm text-green-600 dark:text-green-400">
+                  <svg className="w-5 h-5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
+                  </svg>
+                  Resume "{uploadedFile.name}" uploaded successfully. Click "Check My Resume" to analyze.
+                </div>
+              )}
+              
+              {uploadStatus === 'error' && (
+                <div className="mt-3 text-center text-sm text-red-600 dark:text-red-400">
+                  <svg className="w-5 h-5 inline-block mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  Error processing your resume. Please try again.
+                </div>
+              )}
+              
+              <div className="flex justify-center mt-6">
+                <button
+                  className="px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-full font-medium text-lg transition-all duration-300 z-10 shadow-lg hover:shadow-xl hover:-translate-y-1 transform disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:transform-none"
+                  onClick={handleAnalyzeResume}
+                  disabled={isLoading || !uploadedFile || uploadStatus !== 'success'}
+                >
+                  {isLoading ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Analyzing...
+                    </span>
+                  ) : (
+                    "Check My Resume"
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </HeroSection>
       </section>
