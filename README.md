@@ -55,7 +55,7 @@ ResumeAI is a cutting-edge web application designed to help job seekers optimize
 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/resume-ai.git
+git clone https://github.com/stiflercodeai-ats-resume-checker.git
 cd resume-ai
 ```
 
@@ -136,7 +136,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 👨‍💻 Author
 
-- **ResumeAI Team** - [GitHub Profile](https://github.com/resumeai)
+- **ResumeAI Team** - [GitHub Profile](https://github.com/stiflercode)
 
 ## ⚡ Performance & Accessibility
 
